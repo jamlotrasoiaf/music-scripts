@@ -1,26 +1,23 @@
-#!/bin/sh
+#!/bin/bash
 
 input="$1"
 target_key="$2"
-octave_shift="$3"
+shift_arg="$3"
 
-# --- Check args ---
 if [[ -z "$input" || -z "$target_key" ]]; then
-  echo "Usage: $0 <audiofile.wav|.mp3> <TARGET_KEY (e.g., D, Am, F#)> [OCTAVE_SHIFT: +N or -N]"
+  echo "Usage: $0 <audiofile.wav|.mp3> <TARGET_KEY> [--shift N (semitones, e.g., -12, -6, +3)]"
   exit 1
 fi
 
-# Default to 0 if no octave shift provided
-octave_shift="${octave_shift:-0}"
-
-# Validate octave shift is a number
-if ! [[ "$octave_shift" =~ ^[-+]?[0-9]+$ ]]; then
-  echo "❌ Invalid octave shift: $octave_shift. Use +N or -N (e.g., +1, -2)"
+# Parse optional semitone shift
+extra_shift=0
+if [[ "$shift_arg" =~ ^--shift[=\ ]?([-+]?[0-9]+)$ ]]; then
+  extra_shift="${BASH_REMATCH[1]}"
+elif [[ -n "$shift_arg" ]]; then
+  echo "❌ Invalid argument: $shift_arg"
+  echo "Use: --shift ±N  (e.g., --shift -12 or --shift=6)"
   exit 2
 fi
-
-# Convert to semitone shift
-extra_shift=$((octave_shift * 12))
 
 # Convert MP3 to WAV if needed
 ext="${input##*.}"
@@ -32,10 +29,10 @@ if [[ "$ext" == "mp3" ]]; then
   input="$tmp_wav"
 fi
 
-# Get key from keyfinder
+# Get original key
 orig_key=$(keyfinder-cli "$input" | tr -d '\r')
 
-# Semitone mapping for major/minor keys
+# Semitone mapping
 declare -A semitones=(
   ["C"]=0 ["C#"]=1 ["Db"]=1 ["D"]=2 ["D#"]=3 ["Eb"]=3 ["E"]=4
   ["F"]=5 ["F#"]=6 ["Gb"]=6 ["G"]=7 ["G#"]=8 ["Ab"]=8
@@ -54,22 +51,21 @@ if [[ -z "$from" || -z "$to" ]]; then
   exit 3
 fi
 
-# Compute shift between keys
+# Compute base shift and wrap
 base_shift=$((to - from))
-# Wrap base shift to minimal distance
 if (( base_shift > 6 )); then base_shift=$((base_shift - 12)); fi
 if (( base_shift < -6 )); then base_shift=$((base_shift + 12)); fi
 
-# Total shift = key shift + octave shift
+# Total pitch shift
 total_shift=$((base_shift + extra_shift))
 
 echo "🎼 Detected key: $orig_key"
 echo "🎯 Target key:   $target_key"
-[[ $octave_shift -ne 0 ]] && echo "📦 Octave shift: ${octave_shift} → ${extra_shift} semitones"
-echo "🎚 Total pitch shift: $total_shift semitones"
+echo "🎚 Extra shift:  $extra_shift semitones"
+echo "🎛 Total shift:  $total_shift semitones"
 
 output="${basename}_to_${target_key}"
-[[ $octave_shift -ne 0 ]] && output="${output}_oct${octave_shift}"
+[[ $extra_shift -ne 0 ]] && output="${output}_shift${extra_shift}"
 output="${output}.wav"
 
 sox "$input" "$output" pitch $((total_shift * 100))
